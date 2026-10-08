@@ -1,0 +1,106 @@
+# Thanos Querier 하나로 Platform Prometheus + User-Defined(UWM) Prometheus가
+# 동시에 조회되는지 검증하는 샘플 대시보드
+# 전제: cluster-monitoring-config 에 enableUserWorkload: true, 사용자 네임스페이스에 ServiceMonitor 1개 이상
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: thanos-platform-uwm-check
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "grafana"
+  json: |
+    {
+      "title": "Thanos - Platform + UWM 통합 조회 검증",
+      "uid": "thanos-platform-uwm-check",
+      "schemaVersion": 39,
+      "time": { "from": "now-1h", "to": "now" },
+      "refresh": "30s",
+      "templating": {
+        "list": [
+          {
+            "name": "ds",
+            "label": "Datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": { "text": "OpenShift-Thanos", "value": "OpenShift-Thanos" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Platform Prometheus target 수 (openshift-monitoring/k8s)",
+          "gridPos": { "x": 0, "y": 0, "w": 8, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${ds}" },
+          "targets": [
+            { "refId": "A", "expr": "count(up{prometheus=~\".*/k8s\"})", "instant": true }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "UWM Prometheus target 수 (user-workload)",
+          "gridPos": { "x": 8, "y": 0, "w": 8, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${ds}" },
+          "targets": [
+            { "refId": "A", "expr": "count(up{prometheus=~\".*user-workload.*\"})", "instant": true }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "table",
+          "title": "소스(prometheus 라벨)별 target 수 - 두 행이 보이면 통합 조회 성공",
+          "gridPos": { "x": 16, "y": 0, "w": 8, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${ds}" },
+          "targets": [
+            { "refId": "A", "expr": "count by (prometheus) (up)", "instant": true, "format": "table" }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "[Platform] 노드별 CPU 사용률",
+          "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${ds}" },
+          "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "[UWM] 네임스페이스별 정상 target 수",
+          "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${ds}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (namespace) (up{prometheus=~\".*user-workload.*\"})",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "[Platform x UWM 조인] UWM이 모니터링하는 네임스페이스의 CPU 사용량 - Querier에서만 가능한 단일 PromQL",
+          "gridPos": { "x": 0, "y": 13, "w": 24, "h": 9 },
+          "datasource": { "type": "prometheus", "uid": "${ds}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m])) and on (namespace) group by (namespace) (up{prometheus=~\".*user-workload.*\"})",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        }
+      ]
+    }
